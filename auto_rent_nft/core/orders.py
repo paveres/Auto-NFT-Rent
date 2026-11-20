@@ -103,6 +103,39 @@ class Orders:
     def order_url(oid) -> str:
         return f"https://funpay.com/orders/{oid}/"
 
+    def confirm_links(self, o: dict) -> list[str]:
+        rows = self.db.rows("SELECT id FROM orders WHERE state='merged' AND note=? ORDER BY created",
+                            f"докупка к заказу {o['id']}")
+        return [self.order_url(i) for i in [o["id"]] + [r["id"] for r in rows]]
+
+    def reviewed_before(self, o: dict) -> bool:
+        buyer = o.get("buyer_id") or 0
+        if not buyer:
+            return False
+        key = f"reviewed:{buyer}"
+        if self.db.get(key):
+            return True
+        rows = self.db.rows("SELECT id FROM orders WHERE buyer_id=? AND id!=? AND state='done' ORDER BY created DESC LIMIT 5",
+                            buyer, o["id"])
+        for r in rows:
+            try:
+                full = self.p.app.fp.get_order(r["id"])
+            except Exception as e:
+                log.warning("Заказ %s: отзыв по прошлому заказу не прочитан — %s", r["id"], e)
+                continue
+            review = getattr(full, "review", None) if full else None
+            if review and getattr(review, "stars", None) and not getattr(review, "hidden", False):
+                self.db.put(key, True)
+                return True
+        return False
+
+    def ask_confirm(self, o: dict) -> str:
+        links = self.confirm_links(o)
+        key = "ask_confirm" if self.reviewed_before(o) else "ask_review"
+        if len(links) > 1:
+            key += "_many"
+        return self.T(key, order_url="\n".join(links), n=len(links))
+
     def budget(self, o) -> float:
         s = float(o["sum"] or 0)
         base = max(s * float(self.cfg()["profit_guard"]), s - 1.0)
@@ -665,7 +698,7 @@ class Orders:
                           until=until_str(o["until"]))
         else:
             text = self.T("done_manual", until=until_str(o["until"]))
-        self.out.text(o["chat_id"], text + "\n\n" + self.T("ask_review", order_url=self.order_url(oid)))
+        self.out.text(o["chat_id"], text + "\n\n" + self.ask_confirm(o))
         self.p.delivered(self.db.order(oid), "fast" if how.startswith("fast") else how)
 
     def tick(self) -> None:
@@ -745,7 +778,7 @@ class Orders:
         self.db.upd(base_id, until=until, end_reminded=0, ended=0, reminded=0)
         self.db.upd(oid, state="done", until=until, cost=cost, ended=1, end_reminded=1, note="продление")
         self.out.text(o["chat_id"], self.T("extended", name=base["nft_name"], days=days_str(o["days"]), until=until_str(until))
-                      + "\n\n" + self.T("ask_review", order_url=self.order_url(oid)))
+                      + "\n\n" + self.ask_confirm(o))
         self.p.extended(self.db.order(oid), o["days"])
 
     def extend_failed(self, oid: str, e: ApiError) -> None:

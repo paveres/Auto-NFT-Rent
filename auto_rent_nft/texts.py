@@ -48,6 +48,9 @@ DEFAULT_TEXTS: dict[str, str] = {
     "done_auto": "✅ Вход выполнен!\n🎉 Готово! {name} {target} до {until}\n🔒 Я вышел из вашего аккаунта",
     "done_manual": "✅ Привязано до {until}\nНа fragment.com: My Assets → ⋯ → Display on Telegram",
     "ask_review": "🙏 Подтвердите заказ и оставьте отзыв: {order_url}",
+    "ask_review_many": "🙏 Подтвердите заказы ({n}) и оставьте отзыв:\n{order_url}",
+    "ask_confirm": "🙏 Подтвердите заказ: {order_url}",
+    "ask_confirm_many": "🙏 Подтвердите заказы ({n}):\n{order_url}",
     "end_soon": "⏰ {name} у вас до {until}. Продлить — !продлить",
     "ended": "⌛ Аренда {name} закончилась. Взять снова: {link}",
     "help": ("⌨️ Команды\n!подарки — выбрать подарок и посмотреть модели\n!модель — картинка по заказу\n"
@@ -77,7 +80,8 @@ TITLES: dict[str, str] = {
     "tc_cut": "Ссылка обрезана", "channel_looking": "Смотрю канал", "channel_empty": "В канале нет ссылки",
     "channel_cut": "В канале ссылка обрезана", "channel_private": "Закрытый канал", "bind_working": "Привязываю",
     "bind_failed": "Привязка не вышла", "done_fast": "Готово (быстро)", "done_auto": "Готово (без выбора места)", "done_manual": "Готово (вручную)",
-    "ask_review": "Просьба об отзыве", "end_soon": "Скоро конец аренды", "ended": "Аренда закончилась",
+    "ask_review": "Просьба об отзыве", "ask_review_many": "Просьба об отзыве (несколько заказов)",
+    "ask_confirm": "Просьба подтвердить (отзыв уже был)", "ask_confirm_many": "Просьба подтвердить несколько заказов (отзыв уже был)", "end_soon": "Скоро конец аренды", "ended": "Аренда закончилась",
     "help": "!помощь", "nft_list": "!нфт", "nft_empty": "!нфт — пусто", "models_caption": "!модели",
     "unknown_gift": "Подарок не найден", "term": "!срок", "term_none": "!срок — аренд нет", "extend": "!продлить",
 }
