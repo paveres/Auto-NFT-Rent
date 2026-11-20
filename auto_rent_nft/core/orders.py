@@ -20,6 +20,7 @@ MSK = dt.timezone(dt.timedelta(hours=3))
 NUM_RE = re.compile(r"(?:№|#)?\s*(\d{1,2})\s*[.)]?")
 RENT_WAIT = 480
 FAST_WAIT = 900
+TARGET_WAIT = 180
 COOLDOWN = 20
 MAX_FAST = 6
 KIND_TITLE = {"me": "👤 Личный аккаунт", "channel": "📢 Каналы", "group": "👥 Группы"}
@@ -567,6 +568,7 @@ class Orders:
             pc = st.get("desktop_url") or st["login_url"]
             self.out.text(o["chat_id"], self.T("fast_link", link=st["login_url"], pc=pc))
             code_sent, targets_sent = None, False
+            target_deadline, auto_done, silent = None, False, False
             deadline = time.time() + FAST_WAIT
             while time.time() < deadline and not stop.wait(4):
                 try:
@@ -580,6 +582,12 @@ class Orders:
                     self.out.text(o["chat_id"], self.T("fast_code", code=code_sent))
                 if stage == "choose_target" and not targets_sent:
                     targets = st.get("targets") or []
+                    targets_sent = True
+                    if st.get("telegram_user"):
+                        self.db.upd(oid, tg=st["telegram_user"])
+                    if targets and all(t.get("kind", "me") == "me" for t in targets) and self.auto_target(o["rental"], targets):
+                        auto_done = silent = True
+                        continue
                     lines, kind = [], None
                     for i, t in enumerate(targets, 1):
                         if t.get("kind", "me") != kind:
@@ -587,15 +595,24 @@ class Orders:
                             lines.append(("\n" if lines else "") + KIND_TITLE.get(kind, "📌 Другое"))
                         lines.append(f"{i}. {t['name']}")
                     self.db.put(f"targets:{oid}", targets)
-                    if st.get("telegram_user"):
-                        self.db.upd(oid, tg=st["telegram_user"])
                     self.db.upd(oid, state="bind_target")
                     self.out.text(o["chat_id"], self.T("fast_targets", lines="\n".join(lines)))
-                    targets_sent = True
+                    target_deadline = time.time() + TARGET_WAIT
+                    deadline = max(deadline, target_deadline + 120)
+                elif stage == "choose_target" and target_deadline and not auto_done and time.time() >= target_deadline:
+                    if self.db.swap(oid, ("bind_target",), "bind_fast"):
+                        if self.auto_target(o["rental"], self.db.get(f"targets:{oid}") or []):
+                            self.out.text(o["chat_id"], self.T("fast_auto"))
+                            auto_done = True
+                        else:
+                            self.db.upd(oid, state="bind_target")
+                            target_deadline = time.time() + 30
+                    else:
+                        auto_done = True
                 elif stage == "completed":
                     if st.get("telegram_user"):
                         self.db.upd(oid, tg=st["telegram_user"])
-                    return self.done(oid, "fast", st.get("target"))
+                    return self.done(oid, "fast_auto" if silent else "fast", st.get("target"))
                 elif stage == "failed":
                     return self.to_manual(oid, st.get("error") or "ошибка")
                 elif stage in ("expired", "canceled"):
@@ -610,6 +627,17 @@ class Orders:
         finally:
             if self.fast_runs.get(oid) is stop:
                 self.fast_runs.pop(oid, None)
+
+    def auto_target(self, rental: str, targets: list) -> bool:
+        if not targets:
+            return False
+        mine = next((t for t in targets if t.get("kind", "me") == "me"), targets[0])
+        try:
+            self.api.fast_target(rental, int(mine.get("index", 0)))
+            return True
+        except ApiError as e:
+            log.warning("Аренда %s: автоматический выбор места — %s", rental, e)
+            return False
 
     def pick_target(self, o, n: int) -> None:
         targets = self.db.get(f"targets:{o['id']}") or []
@@ -630,14 +658,15 @@ class Orders:
             return
         self.db.upd(oid, state="done")
         self.db.put(f"targets:{oid}", None)
-        if how == "fast":
+        if how in ("fast", "fast_auto"):
             where = "в вашем профиле" if not target or target in ("Мой профиль",) or (o["tg"] or {}).get("name") == target \
                 else f"в «{target}»"
-            text = self.T("done_fast", name=o["nft_name"], target=where, until=until_str(o["until"]))
+            text = self.T("done_auto" if how == "fast_auto" else "done_fast", name=o["nft_name"], target=where,
+                          until=until_str(o["until"]))
         else:
             text = self.T("done_manual", until=until_str(o["until"]))
         self.out.text(o["chat_id"], text + "\n\n" + self.T("ask_review", order_url=self.order_url(oid)))
-        self.p.delivered(self.db.order(oid), how)
+        self.p.delivered(self.db.order(oid), "fast" if how.startswith("fast") else how)
 
     def tick(self) -> None:
         now = time.time()
